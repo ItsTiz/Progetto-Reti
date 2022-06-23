@@ -1,29 +1,15 @@
-import  os
+
 from Utils.utils import serverSocket
 
-##################################### files function
-def getDir(directory):
-    return [f for f in os.listdir('.')]
-    
-def exists(file):
-    return any(filter(os.path.exists, [file]))
-
-from functools import partial
-def readFile(filename: str, file_consumer, block_size = 2*10):
-    with open(filename, 'rb') as f:
-        for block in iter(partial(f.read, block_size), b''):
-            file_consumer(block)
-        
 ##################################### test read file with func for blocks
 #def processFileBlock(block : bytes):
 #    print(block)
 #readFile("prova.mp4", processFileBlock, 20)
-
+import time
            
 ##################################### test server 
-server = serverSocket(("127.0.0.1", 1001))
+server = serverSocket(("127.0.0.1", 10001))
 server.start()
-
 
 ##################################### TODO
 #def decode(mess: Message) -> Response:

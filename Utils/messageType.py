@@ -1,24 +1,58 @@
 ##################################### Message data type
 from dataclasses import dataclass
-from enum import Enum
+from enum import IntEnum
+from Utils.utils import *
+from hashlib import md5, sha256
 
-class MessageType(Enum):
+############################################################### message funcitonss  
+class Response(IntEnum):
+    OK = 0
+    ERROR = 1
+    
+class MessageType(IntEnum):
     #RESPONSE = 0
     LIST = 0
     GET = 1
     PUT = 2
-
-class Response(Enum):
-    OK = 0
-    ERROR = 1
     
+    
+_KIND_SIZE = 1
+_CHECKSUM_SIZE = 32
 
-@dataclass
 class Message:
-    kind: MessageType
-    metadata: bytes
-    payload: bytes
-    checksum: bytes
+    kind: MessageType # 1 byte
+    payload: bytes # n bytes
+    checksum: bytes # 32 byte
+    
+    
+    
+    def fromKind (self, kind, payload=b""):
+        self.kind = kind
+        self.payload = payload
+        self.checksum = myChecksum(self.data())
+        return self
+        
+    def fromData (self, kind, payload, checksum):
+        self.kind = kind
+        self.payload = payload
+        self.checksum = checksum
+        return self
     
     def data(self) -> bytes:
-        return self.kind + self.metadata + self.payload
+        return self.kind.to_bytes(_KIND_SIZE,byteorder='big')  + self.payload
+    
+    def raw(self) -> bytes:
+        return self.data() + self.checksum
+    
+############################################################### checksum funcitonss      
+
+
+#checksum function
+def myChecksum(mess: bytes):
+    return sha256(mess).digest()
+    
+
+# message integrity check
+def check_integrity(message: Message):
+    return message.checksum == myChecksum(message.data())
+ 
