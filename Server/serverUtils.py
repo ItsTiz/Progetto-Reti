@@ -1,7 +1,7 @@
 #Message utility
-from Utils.messageType import *
+from messageType import *
 
-from Utils.messageType import _KIND_SIZE, _CHECKSUM_SIZE
+from messageType import _KIND_SIZE, _CHECKSUM_SIZE
 
 #Socket utiity
 import socket as Socket
