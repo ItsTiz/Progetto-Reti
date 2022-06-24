@@ -1,6 +1,4 @@
-import socket as Socket
-import signal,sys
-from Utils.utils import *
+from clientUtils import clientSocket
 
 ##################################### test client 
 client = clientSocket(("127.0.0.1", 10001))

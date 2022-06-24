@@ -1,7 +1,6 @@
 ##################################### Message data type
 from dataclasses import dataclass
 from enum import IntEnum
-from Utils.utils import *
 from hashlib import md5, sha256
 
 ############################################################### message funcitonss  
@@ -14,6 +13,7 @@ class MessageType(IntEnum):
     LIST = 0
     GET = 1
     PUT = 2
+    LIST_REPLY = 3
     
     
 _KIND_SIZE = 1
@@ -23,6 +23,7 @@ class Message:
     kind: MessageType # 1 byte
     payload: bytes # n bytes
     checksum: bytes # 32 byte
+    
     
     
     

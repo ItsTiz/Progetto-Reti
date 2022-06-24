@@ -1,5 +1,5 @@
 
-from Utils.utils import serverSocket
+from serverUtils import serverSocket
 
 ##################################### test read file with func for blocks
 #def processFileBlock(block : bytes):

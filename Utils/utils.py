@@ -13,14 +13,27 @@ import signal, sys
 import  os
 
 
+input_DIR = os.path.abspath("/Users/utenteadmin/Desktop/UNIBO/2021-2022/2° semestre/Programmazione di Reti/")
+output_DIR = os.path.abspath("/Users/utenteadmin/Desktop/UNIBO/2021-2022/2° semestre/Programmazione di Reti/Progetto/Progetto-Reti/Client")
+
 ############################################################### command funcitonss
+def decodeInput(command:str) -> (Message, bool): 
+    if command == "list":
+        return (Message().fromKind(MessageType.LIST), True)
+    if command.startswith("get"):
+        comms = command.split(sep=" ",maxsplit=1)
+        return (Message().fromKind(MessageType.GET,command.split(sep=" ",maxsplit=1)[1].encode(encoding="utf-8")) , True) if len(comms) == 2 else (Message(), False) 
+    if command == "put":
+        return (Message(), False)
+    return (Message(), False)
           
 
 def decodeMessageType(command:bytes) -> MessageType:
    #def decode(mess: Message) -> Response
-    print(command)
     if command == MessageType.LIST.to_bytes(_KIND_SIZE,byteorder='big'):
         return MessageType.LIST
+    if command == MessageType.LIST_REPLY.to_bytes(_KIND_SIZE,byteorder='big'):
+        return MessageType.LIST_REPLY
     if command == MessageType.GET.to_bytes(_KIND_SIZE,byteorder='big'):
         return MessageType.GET
     if command == MessageType.PUT.to_bytes(_KIND_SIZE,byteorder='big'):
@@ -36,21 +49,27 @@ def decodeMessage(command) -> Message:
    
    return Message().fromData(messageType, payload, checksum)
     
-def processMessage(mess : Message, sock : Socket.socket, address) :
+def processMessage(mess : Message, sock = None, address = None) :
     if mess.kind == MessageType.LIST:
-        return sendLIST(sock,address)
+        return sendLIST_REPLY(sock,address)
+    if mess.kind == MessageType.LIST_REPLY:
+        return print("\n".join(parseLIST_REPLY(mess.payload)))
     if mess.kind == MessageType.GET:
-        return sendGET(mess)
-    if mess.kind == MessageType.PUT:
         return sendPUT(mess)
+    if mess.kind == MessageType.PUT:
+        return writeFile()
     return processResponse(mess)
 
     
-def sendLIST(sock,address):
-    #print("-LIST-")
-    message = Message().fromKind(MessageType.LIST, ';'.join(getDir(".")).encode(encoding='utf-8'))
+def sendLIST_REPLY(sock,address):
+    files =  ';'.join(getDir()).encode(encoding='utf-8')
+    message = Message().fromKind(MessageType.LIST_REPLY, files)
     #sock.sock.sendto(message.raw(), server_address)
-    sock.sendto(message.raw(),address)
+    sendTo(sock, address, message.raw())
+
+
+def parseLIST_REPLY(payload:bytes):
+    return payload.decode(encoding="utf-8").split(sep=";");
 
 def sendGET(args):
     print("-GET-",args)
@@ -59,6 +78,10 @@ def sendGET(args):
 def sendPUT(args):
     print("-PUT-",args)
     return
+
+def sendTo(sock,address, mess):
+    print("---> sending:",mess)
+    sock.sendto(mess,address)
     
 
 
@@ -138,12 +161,12 @@ class serverSocket():
             #data = data.decode('utf8')
             
             #decode
-            print("input:",data);
+            print("<--- input:",data);
             message = decodeMessage(data)
-            print("message:",message.raw())
+            print("- message:",message.raw())
             
             #check integrity
-            print("integrity:",check_integrity(message))
+            print("- integrity:",check_integrity(message))
             #process
             processMessage(message, self.socket, address)
             
@@ -170,6 +193,7 @@ class clientSocket():
         
         #Binding with udp socket
         self.socket = Socket.socket(Socket.AF_INET, Socket.SOCK_DGRAM)
+        self.socket.settimeout(10)
        
         # catch forced interrupts
         signal.signal(signal.SIGINT, self.close)
@@ -195,22 +219,28 @@ class clientSocket():
         while True:
             input_command = input('Type in your command:')
             
+            mess, ok = decodeInput(input_command)
+            
+            if not ok :
+                print("wrong command")
+                continue
             #header = MessageType.LIST
             #payload = "provaprova".encode(encoding='utf-8')
             #metadata = "index=1".encode(encoding='utf-8')
-            mess=Message().fromKind(MessageType.LIST)
-            print(mess.raw())
-            sent = self.socket.sendto(mess.raw(), self.address)
+            #mess=Message().fromKind(MessageType.LIST)
+            
+            sent = sendTo(self.socket, self.address, mess.raw())
             
             data, address = self.socket.recvfrom(4096)
-            print("input:",data);
+            print("<--- input:",data);
             message = decodeMessage(data)
-            print("message:",message.raw())
+            print("- message:",message.raw())
             
             #check integrity
-            print("integrity:",check_integrity(message))
-            print("payload", message.payload)
-            print("checksum", message.checksum)
+            print("- integrity:",check_integrity(message))
+            print("- payload", message.payload)
+            processMessage(message)
+            print("- checksum", message.checksum)
             print("-----------------")
             
         
