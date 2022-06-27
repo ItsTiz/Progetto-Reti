@@ -2,13 +2,14 @@
 # coding: utf-8
    
 #Message utility
-from messageType import *
+from messageType import MessageType, Message, check_integrity
 
 from messageType import _KIND_SIZE, _CHECKSUM_SIZE
 
 #Socket utiity
 import socket as Socket
 from threading import Thread
+import threading
 import signal, sys
 import  os
 
@@ -49,12 +50,12 @@ def decodeMessage(command) -> Message:
    
    return Message().fromData(messageType, payload, checksum)
     
-def processMessage(mess : Message, sock = None, address = None) :
+def processMessage(mess : Message, optionalArg : str = "") :
+    
     if mess.kind == MessageType.LIST_REPLY:
         return print("\n".join(parseLIST_REPLY(mess.payload)))
     if mess.kind == MessageType.PUT:
-        writeFile("ricevuto.mp3", mess.payload)
-        #return print()
+        writeFile(optionalArg, mess.payload)
     
 
 def parseLIST_REPLY(payload:bytes):
@@ -94,9 +95,6 @@ def writeFile(filename: str, block):
     with open(filename, 'ab') as f:
         f.write(block)
         
-        
-
-        #########################################
 ###############################################################
 ###############################################################
 ############################################################### Client Socket
@@ -113,81 +111,119 @@ class clientSocket():
         
         #Binding with udp socket
         self.socket = Socket.socket(Socket.AF_INET, Socket.SOCK_DGRAM)
-        #self.socket.settimeout(10)
        
         # catch forced interrupts
         signal.signal(signal.SIGINT, self.close)
         
-        # create listening thread
-        conn = clientConnectionHandler(self.socket, self.address)
-            
         
-    #Destructor
-    def __del__(self):
-        self.close(None, None)
         
     #Close socket - also called for SIGINT process calls
     def close(self, signal, frame):
-        print('[Closing server]')
+        print("[Closing client]")
         # clear conneaction
         try:
-          if( self ):
+          if(self):
             self.socket.close()
         finally:
-          sys.exit(0)
+            sys.exit(0)
     
     #Listeniong for client requests
     def start(self):
         
+        createConn = 0;
+        conn = None
         while True:
-            input_command = input('Type in your command:')
+            
+            #if(conn != None):
+            #    conn.pause();
+            input_command = input("Type in your command:")
             
             mess, ok = decodeInput(input_command)
             
             if not ok :
-                print("wrong command")
+                print("Could not recognize \"", input_command, "\" as a command")
                 continue
             #header = MessageType.LIST
             #payload = "provaprova".encode(encoding='utf-8')
             #metadata = "index=1".encode(encoding='utf-8')
             #mess=Message().fromKind(MessageType.LIST)
             
-            sent = sendTo(self.socket, self.address, mess.raw())
+            sent = sendTo(self.socket, ("127.0.0.1", 10001), mess.raw())
+            if(createConn == 0):
+                createConn = 1
+                conn = clientConnectionHandler(self.socket, self.address, mess)
+            elif (createConn == 1):
+                conn.setMessageArgument(mess)
+                conn.resume()
             
-            
+            # create listening thread
             
             
 
 class clientConnectionHandler(Thread):
     socket: Socket.socket
     address : (str, int)
+    messSent: Message
 
     #Constructor
-    def __init__(self, socket, address : (str, int)):
-        super().__init__(daemon=True)
+    def __init__(self, socket, address : (str, int), mess : Message):
+        
+        super(clientConnectionHandler, self).__init__(daemon=True)
+        self.__flag = threading.Event() # The flag used to pause the thread
+        self.__flag.set() # Set to True
+        self.__running = threading.Event() # Used to stop the thread identification
+        self.__running.set() # Set running to True
+        
         # init socket
         self.address = address
-        self.socket = socket
+        self.socket = socket     
+        self.messSent = mess
         # autorun
         self.start()
-            
+        
+        
     #Listeniong for client requests
     def run(self):
-        print("listening-thread running")
+        print("listening for input...")
+        
+        data = None
         
         while True:
             
-            data, address = self.socket.recvfrom(2048)
+            
+            data, address = self.socket.recvfrom(4096)
             #print("<--- input:",data);
             message = decodeMessage(data)
+                
+            if(message.payload == b"END_OF_FILE"):
+                self.pause()
+            
             #print("- message:",message.raw())
             
             #check integrity
             #print("- payload", message.payload)
-            processMessage(message)
-            print("- checksum", message.checksum)
-            print("- integrity:",check_integrity(message))
+            if self.messSent.kind != MessageType.LIST:
+                processMessage(message,self.messSent.payload.decode())
+            else:
+                processMessage(message)
+                
+                
+            #print("- payload", message.payload)
+            #print("- integrity:",check_integrity(message))
             
-            print("-----------------")
+            #print("-----------------")
             
+    def pause(self):
+        self.__flag.clear() # Set to False to block the thread
+
+    def resume(self):
+        self.__flag.set() # Set to True, let the thread stop blocking
+        
+    def stop(self):
+        self.__flag.set() # Resume the thread from the suspended state, if it is already suspended
+        self.__running.clear() # Set to False
+           
+             
+    def setMessageArgument(self, message: Message):        
+        self.messSent = message       
             

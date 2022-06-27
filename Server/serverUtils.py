@@ -1,5 +1,5 @@
 #Message utility
-from messageType import *
+from messageType import MessageType, Message, check_integrity
 
 from messageType import _KIND_SIZE, _CHECKSUM_SIZE
 
@@ -9,6 +9,7 @@ from threading import Thread
 import signal, sys
 from math import ceil
 import  os
+import time
 
 
 input_DIR = os.path.abspath("/Users/utenteadmin/Desktop/UNIBO/2021-2022/2° semestre/Programmazione di Reti/")
@@ -43,8 +44,9 @@ def processMessage(mess : Message, sock = None, address = None) :
     if mess.kind == MessageType.GET:
         return sendPUT(mess.payload, sock, address)
     if mess.kind == MessageType.PUT:
-        return writeFile()
-    return processResponse(mess)
+        return None
+        #return writeFile()
+    #return processResponse(mess)
 
     
 def sendLIST_REPLY(sock,address):
@@ -52,19 +54,28 @@ def sendLIST_REPLY(sock,address):
     message = Message().fromKind(MessageType.LIST_REPLY, files)
     #sock.sock.sendto(message.raw(), server_address)
     sendTo(sock, address, message.raw())
+    
+    message = Message().fromKind(MessageType.LIST_REPLY, b"END_OF_FILE")
+    #sock.sock.sendto(message.raw(), server_address)
+    sendTo(sock, address, message.raw())
 
-import time
+
+
 def sendPUT(file, sock, address):
-    def sendBlockTo(block, index):
-        outMess = Message().fromKind(MessageType.PUT, block).raw()
+    def sendBlockTo(block, index, iters):
+        if(index == iters - 1):
+            outMess =  Message().fromKind(MessageType.PUT, b"END_OF_FILE").raw()
+        else:
+            outMess = Message().fromKind(MessageType.PUT, block).raw()
         sendTo(sock, address, outMess)
-        #time.sleep(0.0125)
+        print("sending block ", index)
+        time.sleep(0.001)
     readFile(file, sendBlockTo, 2**10)
     return
 
 
 def sendTo(sock,address, mess):
-    print("---> sending:",mess)
+    #print("---> sending:",mess)
     sock.sendto(mess,address)
     
 
@@ -86,7 +97,8 @@ def readFile(filename: str, file_consumer, block_size = 2**10):
     index = 0
     with open(filename, 'rb') as f:
         for block in iter(partial(f.read, block_size), b''):
-            file_consumer(block, index)
+            file_consumer(block, index, iters)
+            index+=1;
        
 
 
@@ -123,40 +135,43 @@ class serverSocket():
        
         # catch forced interrupts
         signal.signal(signal.SIGINT, self.close)
-            
-        
-    #Destructor
-    def __del__(self):
-        self.close(None, None)
         
     #Close socket - also called for SIGINT process calls
     def close(self, signal, frame):
         print('[Closing server]')
         # clear conneaction
         try:
-          if( self ):
+          if(self):
             self.socket.close()
         finally:
-          sys.exit(0)
+            sys.exit(0)
     
     #Listeniong for client requests
     def start(self):
         # start message heandler in other thread
-        print("listening on", self.address)
         
         while True:
-            data, address = self.socket.recvfrom(2**10)
-            #data = data.decode('utf8')
+            print("listening on", self.address,"\nReady for requests...")
+        
+            check = False
+        
+            while not check:
+                
+                data, address = self.socket.recvfrom(2**10)
+                #data = data.decode('utf8')
             
-            #decode
-            print("<--- input:",data);
-            message = decodeMessage(data)
-            print("- message:",message.raw())
+                #decode
+                print("<--- input:",data);
+                message = decodeMessage(data)
+                #print("- message:",message.raw())
+                
+                if(check_integrity(message) == True):
+                    check = True
             
             #check integrity
-            print("- integrity:",check_integrity(message))
+            #print("- integrity:",check_integrity(message))
             #process
             processMessage(message, self.socket, address)
-            
-            print("-----------------")
+                
+           # print("-----------------")
             
