@@ -31,6 +31,18 @@ class connectionHandler:
     ############################################################### command funcitonss
     
     
+    def decodeInput(self, command:str) -> (Message, bool): 
+        if command == "list":
+            return (Message().fromKind(MessageType.LIST), True)
+        if command.startswith("get"):
+            comms = command.split(sep=" ",maxsplit=1)
+            return (Message().fromKind(MessageType.GET,command.split(sep=" ",maxsplit=1)[1].encode(encoding="utf-8")) , True) if len(comms) == 2 else (Message(), False) 
+        if command.startswith("put"):
+            comms = command.split(sep=" ",maxsplit=1)
+            return (Message().fromKind(MessageType.PUT,comms[1].encode(encoding="utf-8")) , True) if len(comms) == 2 else (Message(), False) 
+        return (Message(), False)
+    
+    
     def decodeMessage(self, command) -> Message:
        #def decode(mess: Message) -> Response
        messageType = MessageType.decode(command[0:_KIND_SIZE])
@@ -57,8 +69,6 @@ class connectionHandler:
             if self.file != None : # if reading
                 print("ok and writing")
                 return self._sendPUT(mess.payload, sock, address)
-            #return writeFile()
-        #return processResponse(mess)
     
         
     def _sendLIST_REPLY(self, sock,address):
@@ -167,15 +177,6 @@ class connectionHandler:
         
 
 ############################################################### command funcitonss
-def decodeInput(command:str) -> (Message, bool): 
-    if command == "list":
-        return (Message().fromKind(MessageType.LIST), True)
-    if command.startswith("get"):
-        comms = command.split(sep=" ",maxsplit=1)
-        return (Message().fromKind(MessageType.GET,command.split(sep=" ",maxsplit=1)[1].encode(encoding="utf-8")) , True) if len(comms) == 2 else (Message(), False) 
-    if command == "put":
-        return (Message(), False)
-    return (Message(), False)
           
 
 
@@ -234,21 +235,23 @@ class clientSocket():
             # parse CLI input
             input_command = input("Type in your command:")
             
-            input_mess, ok = decodeInput(input_command)
+            input_mess, ok = self.conn.decodeInput(input_command)
             
-            if not ok :
-                print("Could not recognize \"", input_command, "\" as a command")
-                continue
-            #header = MessageType.LIST
-            #payload = "provaprova".encode(encoding='utf-8')
-            #metadata = "index=1".encode(encoding='utf-8')
-            #mess=Message().fromKind(MessageType.LIST)
-    
-            ok = self.conn._sendTo(self.socket, self.address, input_mess.raw())
             
-            # if connection timeout
-            if not ok:
-                continue
+            if input_mess.kind == MessageType.PUT:
+                self.conn._sendPUT(input_mess.payload, self.socket, self.address)
+            else:   
+                if not ok :
+                    print("Could not recognize \"", input_command, "\" as a command")
+                    continue
+                
+                
+                ok = self.conn._sendTo(self.socket, self.address, input_mess.raw())
+                
+                # if connection timeout
+                if not ok:
+                    continue
+            
             
             while True:
                 
