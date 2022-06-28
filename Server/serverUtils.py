@@ -11,106 +11,135 @@ from math import ceil
 import  os
 import time
 
-
-input_DIR = os.path.abspath("/Users/utenteadmin/Desktop/UNIBO/2021-2022/2° semestre/Programmazione di Reti/")
-output_DIR = os.path.abspath("/Users/utenteadmin/Desktop/UNIBO/2021-2022/2° semestre/Programmazione di Reti/Progetto/Progetto-Reti/Client")
-
-############################################################### command funcitonss
-
-def decodeMessageType(command:bytes) -> MessageType:
-   #def decode(mess: Message) -> Response
-    if command == MessageType.LIST.to_bytes(_KIND_SIZE,byteorder='big'):
-        return MessageType.LIST
-    if command == MessageType.LIST_REPLY.to_bytes(_KIND_SIZE,byteorder='big'):
-        return MessageType.LIST_REPLY
-    if command == MessageType.GET.to_bytes(_KIND_SIZE,byteorder='big'):
-        return MessageType.GET
-    if command == MessageType.PUT.to_bytes(_KIND_SIZE,byteorder='big'):
-        return MessageType.PUT
-
-
-def decodeMessage(command) -> Message:
-   #def decode(mess: Message) -> Response
-   messageType = decodeMessageType(command[0:_KIND_SIZE])
-   print("Messagetype: ", messageType)
-   payload =    command[ _KIND_SIZE : len(command) - _CHECKSUM_SIZE]
-   checksum =   command[-_CHECKSUM_SIZE : ]
-   
-   return Message().fromData(messageType, payload, checksum)
+class connectionHandler:
     
-def processMessage(mess : Message, sock = None, address = None) :
-    if mess.kind == MessageType.LIST:
-        return sendLIST_REPLY(sock,address)
-    if mess.kind == MessageType.GET:
-        return sendPUT(mess.payload, sock, address)
-    if mess.kind == MessageType.PUT:
-        return None
-        #return writeFile()
-    #return processResponse(mess)
-
+    input_DIR = os.path.abspath("/Users/utenteadmin/Desktop/UNIBO/2021-2022/2° semestre/Programmazione di Reti/")
+    output_DIR = os.path.abspath("/Users/utenteadmin/Desktop/UNIBO/2021-2022/2° semestre/Programmazione di Reti/Progetto/Progetto-Reti/Client")
+    EOF_message = Message().fromKind(MessageType.PUT, b"END_OF_FILE")
+    OK_message = Message().fromKind(MessageType.OK)
+    ERROR_message = Message().fromKind(MessageType.ERROR)
+    reading_file = False
+    lastMessage = Message()
+    #file
+    file = None
+    file_index = 0
     
-def sendLIST_REPLY(sock,address):
-    files =  ';'.join(getDir(".")).encode(encoding='utf-8')
-    message = Message().fromKind(MessageType.LIST_REPLY, files)
-    #sock.sock.sendto(message.raw(), server_address)
-    sendTo(sock, address, message.raw())
+    ############################################################### command funcitonss
     
-    message = Message().fromKind(MessageType.LIST_REPLY, b"END_OF_FILE")
-    #sock.sock.sendto(message.raw(), server_address)
-    sendTo(sock, address, message.raw())
-
-
-
-def sendPUT(file, sock, address):
-    def sendBlockTo(block, index, iters):
-        if(index == iters - 1):
-            outMess =  Message().fromKind(MessageType.PUT, b"END_OF_FILE").raw()
-        else:
+    
+    def decodeMessage(self, command) -> Message:
+       #def decode(mess: Message) -> Response
+       messageType = MessageType().decode(command[0:_KIND_SIZE])
+       print("Messagetype: ", messageType)
+       payload =    command[ _KIND_SIZE : len(command) - _CHECKSUM_SIZE]
+       checksum =   command[-_CHECKSUM_SIZE : ]
+       return Message().fromData(messageType, payload, checksum)
+        
+    
+    def processMessage(self, mess : Message, sock = None, address = None) :
+        if mess.kind == MessageType.LIST:
+            return self._sendLIST_REPLY(sock,address)
+        if mess.kind == MessageType.LIST_REPLY:
+            return print("\n".join(self._parseLIST_REPLY(mess.payload)))
+        if mess.kind == MessageType.GET:
+            return self._sendPUT(mess.payload, sock, address)
+        if mess.kind == MessageType.PUT:
+            self._writeFile(mess.payload)
+            self._sendTo(sock, address, self.OK_Message.raw())
+        if mess.kind == MessageType.ERROR:
+            return self._sendTo(sock, address, self.lastMessage.raw())
+        if mess.kind == MessageType.OK:
+            if self.reading_file :
+                return self._sendPUT(mess.payload, sock, address)
+            #return writeFile()
+        #return processResponse(mess)
+    
+        
+    def _sendLIST_REPLY(self, sock,address):
+        files =  ';'.join(self._getDir(".")).encode(encoding='utf-8')
+        message = Message().fromKind(MessageType.LIST_REPLY, files)
+        #sock.sock.sendto(message.raw(), server_address)
+        self._sendTo(sock, address, message.raw())
+    
+    
+    def _sendPUT(self, mess, sock, address):
+        # if file not opened
+        if self.file == None :
+            # open file
+            self._openFile( mess, "rb")
+            # send filename
+            self._sendTo(sock, address, Message().fromKind(MessageType.PUT, mess).raw())
+            return
+        # read file block
+        block = self._readFile(2**10)
+        # if EOF
+        if block == b'':
+            # send EOF
+            self._sendTo(sock, address, self.EOF_message.raw())
+            # close file
+            self._closeFile()
+            return
+        else :
+            # send file block
             outMess = Message().fromKind(MessageType.PUT, block).raw()
-        sendTo(sock, address, outMess)
-        print("sending block ", index)
-        time.sleep(0.001)
-    readFile(file, sendBlockTo, 2**10)
-    return
-
-
-def sendTo(sock,address, mess):
-    #print("---> sending:",mess)
-    sock.sendto(mess,address)
+            self._sendTo(sock, address, outMess)
+            return
+        return
     
-
-
-############################################################### files function
-
-# get files in directory
-def getDir(directory):
-    return [f for f in os.listdir(directory) if os.path.isfile(f)]
     
+    def _parsePUT(self, mess:bytes, sock, address):
+        ## if received EOF
+        if mess == self.EOF_message.payload:
+            self._closeFile()
+            return
+        ## if file not yet opened
+        if self.file == None :
+            self._openFile(mess, "wb")
+            return
+        # write file block
+        self._writeFile(mess)
+        return
+
+
+    def _parseLIST_REPLY(self,payload:bytes):
+        return payload.decode(encoding="utf-8").split(sep=";");
+    
+    
+    def _sendTo(self, sock,address, mess):
+        #print("---> sending:",mess)
+        self.lastMessage = mess
+        sock.sendto(mess,address)
+        
+    
+    ############################################################### files function
+    
+    
+    # get files in directory
+    def _getDir(self, directory):
+        return [f for f in os.listdir(directory) if os.path.isfile(f)]
+        
+    
+    def _readFile(self, block_size = 2**10):
+        if self.file == None:
+            return b''
+        return self.file.read(block_size)
+    
+    def _openFile(self, filename:str, mode:str):
+        self.file = open(filename, mode)
+        
+    def _closeFile(self):
+        self.file.close()
+        self.file = None
+
+    
+    def _writeFile(self, block):
+        if self.file == None:
+            return
+        self.file.write(block)
+        
+
 def exists(file):
     return any(filter(os.path.exists, [file]))
-
-from functools import partial
-def readFile(filename: str, file_consumer, block_size = 2**10):
-    file_size = os.path.getsize(filename)
-    # number of iterations
-    iters = ceil(file_size/block_size)
-    index = 0
-    with open(filename, 'rb') as f:
-        for block in iter(partial(f.read, block_size), b''):
-            file_consumer(block, index, iters)
-            index+=1;
-       
-
-
-############################################################### prove checksum
-#header = "get".encode(encoding='utf-8')
-#payload = "provaprova".encode(encoding='utf-8')
-#metadata = "index=1".encode(encoding='utf-8')
-#_mess=Message(header, payload, metadata, "")
-#mess=Message(header, payload, metadata, checksum(_mess.data()))
-#print(check_integrity(mess))
-
-
 
 ###############################################################
 ###############################################################
@@ -121,6 +150,7 @@ def readFile(filename: str, file_consumer, block_size = 2**10):
 class serverSocket():
     socket: Socket.socket
     address : (str, int)
+    connHandler= connectionHandler()
 
     #Constructor
     def __init__(self, address : (str, int)):
@@ -153,25 +183,22 @@ class serverSocket():
         while True:
             print("listening on", self.address,"\nReady for requests...")
         
-            check = False
+            data, address = self.socket.recvfrom(2**10)
+            #data = data.decode('utf8')
         
-            while not check:
-                
-                data, address = self.socket.recvfrom(2**10)
-                #data = data.decode('utf8')
-            
-                #decode
-                print("<--- input:",data);
-                message = decodeMessage(data)
-                #print("- message:",message.raw())
-                
-                if(check_integrity(message) == True):
-                    check = True
+            #decode
+            print("<--- input:",data);
+            message = self.connHandler.decodeMessage(data)
+            #print("- message:",message.raw())
             
             #check integrity
             #print("- integrity:",check_integrity(message))
+            if not check_integrity(message) == True:
+                # TODO send response:ERROR
+                continue
+                    
             #process
-            processMessage(message, self.socket, address)
+            self.connHandler.processMessage(message, self.socket, address)
                 
            # print("-----------------")
             

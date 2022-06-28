@@ -14,8 +14,132 @@ import signal, sys
 import  os
 
 
-input_DIR = os.path.abspath("/Users/utenteadmin/Desktop/UNIBO/2021-2022/2° semestre/Programmazione di Reti/")
-output_DIR = os.path.abspath("/Users/utenteadmin/Desktop/UNIBO/2021-2022/2° semestre/Programmazione di Reti/Progetto/Progetto-Reti/Client")
+class connectionHandler:
+    
+    input_DIR = os.path.abspath("/Users/utenteadmin/Desktop/UNIBO/2021-2022/2° semestre/Programmazione di Reti/")
+    output_DIR = os.path.abspath("/Users/utenteadmin/Desktop/UNIBO/2021-2022/2° semestre/Programmazione di Reti/Progetto/Progetto-Reti/Client")
+    EOF_message = Message().fromKind(MessageType.PUT, b"END_OF_FILE")
+    OK_message = Message().fromKind(MessageType.OK)
+    ERROR_message = Message().fromKind(MessageType.ERROR)
+    lastMessage = Message()
+    #file
+    file = None
+    file_index = 0
+    
+    ############################################################### command funcitonss
+    
+    
+    def decodeMessage(self, command) -> Message:
+       #def decode(mess: Message) -> Response
+       messageType = MessageType().decode(command[0:_KIND_SIZE])
+       print("Messagetype: ", messageType)
+       payload =    command[ _KIND_SIZE : len(command) - _CHECKSUM_SIZE]
+       checksum =   command[-_CHECKSUM_SIZE : ]
+       return Message().fromData(messageType, payload, checksum)
+        
+    
+    def processMessage(self, mess : Message, sock = None, address = None) :
+        if mess.kind == MessageType.LIST:
+            return self._sendLIST_REPLY(sock,address)
+        if mess.kind == MessageType.LIST_REPLY:
+            return print("\n".join(self._parseLIST_REPLY(mess.payload)))
+        if mess.kind == MessageType.GET:
+            return self._sendPUT(mess.payload, sock, address)
+        if mess.kind == MessageType.PUT:
+            self._writeFile(mess.payload)
+            self._sendTo(sock, address, self.OK_Message.raw())
+            return 
+        if mess.kind == MessageType.ERROR:
+            return self._sendTo(sock, address, self.lastMessage.raw())
+        if mess.kind == MessageType.OK:
+            if self.file != None : # if reading
+                return self._sendPUT(mess.payload, sock, address)
+            #return writeFile()
+        #return processResponse(mess)
+    
+        
+    def _sendLIST_REPLY(self, sock,address):
+        files =  ';'.join(self._getDir(".")).encode(encoding='utf-8')
+        message = Message().fromKind(MessageType.LIST_REPLY, files)
+        #sock.sock.sendto(message.raw(), server_address)
+        self._sendTo(sock, address, message.raw())
+    
+    
+    def _sendPUT(self, mess, sock, address):
+        # if file not opened
+        if self.file == None :
+            # open file
+            self._openFile( mess, "rb")
+            # send filename
+            self._sendTo(sock, address, Message().fromKind(MessageType.PUT, mess).raw())
+            return
+        # read file block
+        block = self._readFile(2**10)
+        # if EOF
+        if block == b'':
+            # send EOF
+            self._sendTo(sock, address, self.EOF_message.raw())
+            # close file
+            self._closeFile()
+            return
+        else :
+            # send file block
+            outMess = Message().fromKind(MessageType.PUT, block).raw()
+            self._sendTo(sock, address, outMess)
+            return
+        return
+    
+    
+    def _parsePUT(self, mess:bytes, sock, address):
+        ## if received EOF
+        if mess == self.EOF_message.payload:
+            self._closeFile()
+            return
+        ## if file not yet opened
+        if self.file == None :
+            self._openFile(mess, "wb")
+            return
+        # write file block
+        self._writeFile(mess)
+        return
+
+
+    def _parseLIST_REPLY(self,payload:bytes):
+        return payload.decode(encoding="utf-8").split(sep=";");
+    
+    
+    def _sendTo(self, sock,address, mess):
+        #print("---> sending:",mess)
+        self.lastMessage = mess
+        sock.sendto(mess,address)
+        
+    
+    ############################################################### files function
+    
+    
+    # get files in directory
+    def _getDir(self, directory):
+        return [f for f in os.listdir(directory) if os.path.isfile(f)]
+        
+    
+    def _readFile(self, block_size = 2**10):
+        if self.file == None:
+            return b''
+        return self.file.read(block_size)
+    
+    def _openFile(self, filename:str, mode:str):
+        self.file = open(filename, mode)
+        
+    def _closeFile(self):
+        self.file.close()
+        self.file = None
+
+    
+    def _writeFile(self, block):
+        if self.file == None:
+            return
+        self.file.write(block)
+        
 
 ############################################################### command funcitonss
 def decodeInput(command:str) -> (Message, bool): 
@@ -29,50 +153,6 @@ def decodeInput(command:str) -> (Message, bool):
     return (Message(), False)
           
 
-def decodeMessageType(command:bytes) -> MessageType:
-   #def decode(mess: Message) -> Response
-    if command == MessageType.LIST.to_bytes(_KIND_SIZE,byteorder='big'):
-        return MessageType.LIST
-    if command == MessageType.LIST_REPLY.to_bytes(_KIND_SIZE,byteorder='big'):
-        return MessageType.LIST_REPLY
-    if command == MessageType.GET.to_bytes(_KIND_SIZE,byteorder='big'):
-        return MessageType.GET
-    if command == MessageType.PUT.to_bytes(_KIND_SIZE,byteorder='big'):
-        return MessageType.PUT
-
-
-def decodeMessage(command) -> Message:
-   #def decode(mess: Message) -> Response
-   messageType = decodeMessageType(command[0:_KIND_SIZE])
-   print("Messagetype: ", messageType)
-   payload =    command[ _KIND_SIZE : len(command) - _CHECKSUM_SIZE]
-   checksum =   command[-_CHECKSUM_SIZE : ]
-   
-   return Message().fromData(messageType, payload, checksum)
-    
-def processMessage(mess : Message, optionalArg : str = "") :
-    
-    if mess.kind == MessageType.LIST_REPLY:
-        return print("\n".join(parseLIST_REPLY(mess.payload)))
-    if mess.kind == MessageType.PUT:
-        writeFile(optionalArg, mess.payload)
-    
-
-def parseLIST_REPLY(payload:bytes):
-    return payload.decode(encoding="utf-8").split(sep=";");
-
-def sendGET(args):
-    print("-GET-",args)
-    return
-
-def sendPUT(args):
-    print("-PUT-",args)
-    return
-
-def sendTo(sock,address, mess):
-    print("---> sending:",mess)
-    sock.sendto(mess,address)
-    
 
 
 ############################################################### files function
@@ -84,17 +164,8 @@ def getDir(directory):
 def exists(file):
     return any(filter(os.path.exists, [file]))
 
-from functools import partial
-def readFile(filename: str, file_consumer, block_size = 2*10):
-    with open(filename, 'rb') as f:
-        for block in iter(partial(f.read, block_size), b''):
-            file_consumer(block)
             
             
-def writeFile(filename: str, block):
-    with open(filename, 'ab') as f:
-        f.write(block)
-        
 ###############################################################
 ###############################################################
 ############################################################### Client Socket
@@ -102,6 +173,7 @@ def writeFile(filename: str, block):
 class clientSocket():
     socket: Socket.socket
     address : (str, int)
+    conn = connectionHandler()
 
     #Constructor
     def __init__(self, address : (str, int)):
@@ -130,15 +202,12 @@ class clientSocket():
     #Listeniong for client requests
     def start(self):
         
-        createConn = 0;
-        conn = None
         while True:
             
-            #if(conn != None):
-            #    conn.pause();
+            # parse CLI input
             input_command = input("Type in your command:")
             
-            mess, ok = decodeInput(input_command)
+            input_mess, ok = decodeInput(input_command)
             
             if not ok :
                 print("Could not recognize \"", input_command, "\" as a command")
@@ -148,82 +217,86 @@ class clientSocket():
             #metadata = "index=1".encode(encoding='utf-8')
             #mess=Message().fromKind(MessageType.LIST)
             
-            sent = sendTo(self.socket, ("127.0.0.1", 10001), mess.raw())
-            if(createConn == 0):
-                createConn = 1
-                conn = clientConnectionHandler(self.socket, self.address, mess)
-            elif (createConn == 1):
-                conn.setMessageArgument(mess)
-                conn.resume()
+            self.conn._sendTo(self.socket, self.address, input_mess.raw())
             
-            # create listening thread
-            
+            while True:
+                data, address = self.socket.recvfrom(4096)
+                print("<--- input:",data)
+                
+                #decode
+                message = self.conn.decodeMessage(data)
+                    
+                #check integrity
+                if not check_integrity(message) == True:
+                    # send error
+                    self.conn._sendTo(self.socket, self.address, self.conn.ERROR_message.raw())
+                    continue
+                
+                # process
+                self.conn.processMessage(message, self.socekt, self.address)
+                
+                # stop listen if no file is opened, and any error message is received
+                if self.conn.file == None and message.kind != MessageType.ERROR:
+                    break
             
 
-class clientConnectionHandler(Thread):
+
+###############################################################
+###############################################################
+###############################################################
+###############################################################
+############################################################### Server Socket
+
+class serverSocket():
     socket: Socket.socket
     address : (str, int)
-    messSent: Message
+    connHandler= connectionHandler()
 
     #Constructor
-    def __init__(self, socket, address : (str, int), mess : Message):
-        
-        super(clientConnectionHandler, self).__init__(daemon=True)
-        self.__flag = threading.Event() # The flag used to pause the thread
-        self.__flag.set() # Set to True
-        self.__running = threading.Event() # Used to stop the thread identification
-        self.__running.set() # Set running to True
-        
+    def __init__(self, address : (str, int)):
+       
         # init socket
         self.address = address
-        self.socket = socket     
-        self.messSent = mess
-        # autorun
-        self.start()
         
+        #Binding with udp socket
+        self.socket = Socket.socket(Socket.AF_INET, Socket.SOCK_DGRAM)
+        self.socket.setsockopt(Socket.SOL_SOCKET, Socket.SO_REUSEADDR, 1) 
+        self.socket.bind(self.address)
+       
+        # catch forced interrupts
+        signal.signal(signal.SIGINT, self.close)
         
+    #Close socket - also called for SIGINT process calls
+    def close(self, signal, frame):
+        print('[Closing server]')
+        # clear conneaction
+        try:
+          if(self):
+            self.socket.close()
+        finally:
+            sys.exit(0)
+    
     #Listeniong for client requests
-    def run(self):
-        print("listening for input...")
-        
-        data = None
+    def start(self):
+        # start message heandler in other thread
         
         while True:
+            print("listening on", self.address,"\nReady for requests...")
+        
+            data, address = self.socket.recvfrom(2**10)
+            print("<--- input:",data);
             
-            
-            data, address = self.socket.recvfrom(4096)
-            #print("<--- input:",data);
-            message = decodeMessage(data)
-                
-            if(message.payload == b"END_OF_FILE"):
-                self.pause()
-            
-            #print("- message:",message.raw())
+            # decode
+            message = self.connHandler.decodeMessage(data)
             
             #check integrity
-            #print("- payload", message.payload)
-            if self.messSent.kind != MessageType.LIST:
-                processMessage(message,self.messSent.payload.decode())
-            else:
-                processMessage(message)
+            if not check_integrity(message) == True:
+                # send error
+                self.conn._sendTo(self.socket, address, self.conn.ERROR_message.raw())
+                continue
+                    
+            #process
+            self.connHandler.processMessage(message, self.socket, address)
                 
-                
-            #print("- payload", message.payload)
-            #print("- integrity:",check_integrity(message))
-            
-            #print("-----------------")
-            
-    def pause(self):
-        self.__flag.clear() # Set to False to block the thread
-
-    def resume(self):
-        self.__flag.set() # Set to True, let the thread stop blocking
-        
-    def stop(self):
-        self.__flag.set() # Resume the thread from the suspended state, if it is already suspended
-        self.__running.clear() # Set to False
-           
-             
-    def setMessageArgument(self, message: Message):        
-        self.messSent = message       
+           # print("-----------------")
             

@@ -7,17 +7,36 @@ from hashlib import md5, sha256
 class Response(IntEnum):
     OK = 0
     ERROR = 1
-    
+        
+_KIND_SIZE = 1
+_CHECKSUM_SIZE = 32
+
 class MessageType(IntEnum):
     #RESPONSE = 0
     LIST = 0
     GET = 1
     PUT = 2
     LIST_REPLY = 3
+    OK = 4
+    ERROR = 5
     
+    def encoded(self):
+        return self.to_bytes(_KIND_SIZE,byteorder='big')
     
-_KIND_SIZE = 1
-_CHECKSUM_SIZE = 32
+    def decode(command:bytes):
+        if command == MessageType.LIST.encoded():
+            return MessageType.LIST
+        if command == MessageType.LIST_REPLY.encoded():
+            return MessageType.LIST_REPLY
+        if command == MessageType.GET.encoded():
+            return MessageType.GET
+        if command == MessageType.PUT.encoded():
+            return MessageType.PUT
+        if command == MessageType.ERROR.encoded():
+            return MessageType.ERROR
+        if command == MessageType.OK.encoded():
+            return MessageType.OK
+    
 
 class Message:
     kind: MessageType # 1 byte
