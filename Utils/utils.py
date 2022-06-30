@@ -163,7 +163,7 @@ class connectionHandler:
             self._sendTo(sock, address, self.EOF_message.raw())
             # close file
             self._closeFile()
-            print("Sent. ");
+            print("Sent.\n");
             return
         else :
             # send file block
@@ -185,7 +185,7 @@ class connectionHandler:
         ## if received EOF
         if mess == self.EOF_message.payload:
             self._closeFile()
-            print("Received. ");
+            print("Received.\n");
             return
         ## if file not yet opened
         if self.file == None :
@@ -226,7 +226,7 @@ class connectionHandler:
             try:
                 sock.sendto(mess,address)
             except timeout:
-                print(address," unreachable")
+                print(address,"is unreachable")
                 tries = tries-1
                 continue
             return True
@@ -252,7 +252,7 @@ class connectionHandler:
             try:
                 data, address = sock.recvfrom(4096)
             except timeout:
-                print("timeout, resending..")
+                print("Timeout, resending..")
                 # resend last message
                 self._sendTo(sock, addr, self.lastMessage)
                 tries = tries-1
@@ -409,12 +409,12 @@ class clientSocket(Thread):
             
             # check input command
             if not ok :
-                print("Could not recognize \"", input_command, "\" as a command")
+                print("Could not recognize \"", input_command, "\" as a command\n")
                 continue
             
             # check if filename is wrong
             if input_mess.kind == MessageType.WRONG_FILE:
-                print("wrong filename")
+                print("File name is incorrect or couldn't find file\n")
                 continue
             
             # check if put input command
@@ -501,7 +501,7 @@ class serverSocket(Thread):
     #Listeniong for client requests
     def run(self):
         
-        print("listening on", self.address,"\nReady for requests...")
+        print("Listening on", self.address,"\nReady for requests.")
         
         while True:
             
@@ -515,7 +515,7 @@ class serverSocket(Thread):
             
             #check integrity
             if not check_integrity(message):
-                print("integrity error")
+                print("[Integrity ERROR]\n")
                 # send error
                 self.connHandler._sendTo(self.socket, address, self.connHandler.ERROR_message.raw())
                 continue
