@@ -65,7 +65,7 @@ class connectionHandler:
         if command.startswith("put"):
             # split command
             comms = command.split(sep=" ",maxsplit=1)
-            if not self._exists(self.input_DIR + comms[1]) :
+            if not self._exists(os.path.join(self.input_DIR, comms[1])) :
                 return (Message().fromKind(MessageType.WRONG_FILE), True)
             return (Message().fromKind(MessageType.PUT,comms[1].encode(encoding="utf-8")) , True) if len(comms) == 2 else (Message(), False) 
         return (Message(), False)
@@ -113,7 +113,7 @@ class connectionHandler:
             # resend last command
             return self._sendTo(sock, address, self.lastMessage)
         if mess.kind == MessageType.WRONG_FILE:
-            return print("wrong filename")
+            return print("Could not find specified file")
         if mess.kind == MessageType.OK:
             # received ok and continue send put
             if self.file != None :
@@ -145,13 +145,13 @@ class connectionHandler:
     def _sendPUT(self, mess: bytes, sock : Socket.socket, address: (str, int)):
         # if file not opened
         if self.file == None :
-            if not self._exists(self.input_DIR + mess.decode(encoding='utf-8')) :
+            if not self._exists(os.path.join(self.input_DIR,mess.decode(encoding='utf-8'))) :
                 # send error
                 self._sendTo(sock, address, self.WRONG_FILE_message.raw())
                 return
             print("\nSending: ",mess.decode(encoding='utf-8'));
             # open file
-            self._openFile( os.path.abspath(self.input_DIR + mess.decode(encoding='utf-8')), "rb")
+            self._openFile(os.path.abspath(os.path.join(self.input_DIR, mess.decode(encoding='utf-8'))), "rb")
             # send filename
             self._sendTo(sock, address, Message().fromKind(MessageType.PUT, mess).raw())
             return
@@ -190,7 +190,7 @@ class connectionHandler:
         ## if file not yet opened
         if self.file == None :
             print("\nReceiving: ",mess.decode(encoding='utf-8'));
-            self._openFile(os.path.abspath(self.output_DIR + mess.decode(encoding='utf-8')), "wb")
+            self._openFile(os.path.abspath(os.path.join(self.output_DIR, mess.decode(encoding='utf-8'))), "wb")
             return
         # write file block
         self._writeFile(mess)
@@ -364,13 +364,13 @@ class clientSocket(Thread):
     timeout = 3 #s
 
     #Constructor
-    def __init__(self, address : (str, int), args = None):
+    def __init__(self, args = None):
         
         # init thread
         super().__init__()
        
         # init address
-        self.address = address
+        self.address = (args.ip, args.port)
         
         #Binding with udp socket
         self.socket = Socket.socket(Socket.AF_INET, Socket.SOCK_DGRAM)
@@ -380,11 +380,10 @@ class clientSocket(Thread):
         signal.signal(signal.SIGINT, self.close)
         
         # parse args
-        if(args != None):
-            self.conn.setInputDir(args.input_DIR)
-            self.conn.setOutputDir(args.output_DIR)
-            self.conn.setMaxTries(args.max_tries)
-            self.socket.settimeout(args.timeout)
+        self.conn.setInputDir(args.input_DIR)
+        self.conn.setOutputDir(args.output_DIR)
+        self.conn.setMaxTries(args.max_tries)
+        self.socket.settimeout(args.timeout)
         
         
     #Close socket - also called for SIGINT process calls
@@ -456,27 +455,6 @@ class clientSocket(Thread):
                     break
             
 
-
-##########################################
-##########################################
-# commandParser
-# 
-# parse options given to .py files
-#
-class commandParser(argparse.ArgumentParser):
-    def __init__(self, descr:str):
-        super().__init__(description=descr)
-        self.add_argument('-in', type=str, dest='input_DIR', default=connectionHandler.input_DIR,
-                            help='set the input directory, where files will be sent to the server. Default is current dir.')
-        self.add_argument('-out', type=str, dest='output_DIR', default=connectionHandler.output_DIR,
-                            help='set the output directory, where files will be received from the server. Default is current dir.')
-        self.add_argument('-t',type=int,  dest='timeout', default=clientSocket.timeout,
-                            help='set timeout for messages (in s). Default is 3s. ( only for clients )')
-        self.add_argument('-tries',type=int,  dest='max_tries', default=connectionHandler.MAX_TRIES,
-                            help='set max number of tries during reconnection. Default is 5.')
-
-
-
 ##########################################
 ##########################################
 # serverSocket
@@ -489,13 +467,13 @@ class serverSocket(Thread):
     connHandler = connectionHandler()
 
     #Constructor
-    def __init__(self, address : (str, int), args = None):
+    def __init__(self, args):
         
         # init thread
         super().__init__()
         
         # init address
-        self.address = address
+        self.address = (args.ip, args.port)
         
         #Binding with udp socket
         self.socket = Socket.socket(Socket.AF_INET, Socket.SOCK_DGRAM)
@@ -506,10 +484,9 @@ class serverSocket(Thread):
         signal.signal(signal.SIGINT, self.close)
         
         # parse args
-        if(args != None):
-            self.connHandler.setInputDir(args.input_DIR)
-            self.connHandler.setOutputDir(args.output_DIR)
-            self.connHandler.setMaxTries(args.max_tries)
+        self.connHandler.setInputDir(args.input_DIR)
+        self.connHandler.setOutputDir(args.output_DIR)
+        self.connHandler.setMaxTries(args.max_tries)
         
     #Close socket - also called for SIGINT process calls
     def close(self, signal, frame):
@@ -529,8 +506,10 @@ class serverSocket(Thread):
         while True:
             
             # listen for client request
-            data, address = self.socket.recvfrom(4096)
-            
+            try:
+                data, address = self.socket.recvfrom(4096)
+            except Exception:
+                continue
             # decode
             message = self.connHandler.decodeMessage(data)
             
@@ -544,5 +523,29 @@ class serverSocket(Thread):
             #process
             self.connHandler.processMessage(message, self.socket, address)
                 
+    
             
+    
+##########################################
+##########################################
+# commandParser
+# 
+# parse options given to .py files
+#
+class commandParser(argparse.ArgumentParser):
+    def __init__(self, descr:str):
+        super().__init__(description=descr)
+        self.add_argument('-ip',type=str,  dest='ip', default="127.0.0.1",
+                            help='(server) set ip to bind to. (client) set ip to send to. Default is 127.0.0.1')
+        self.add_argument('-p',type=int,  dest='port', default=10001,
+                    help='(server) set port to bind to. (client) set port to send to. Default is 10001')
+        self.add_argument('-in', type=str, dest='input_DIR', default=connectionHandler.input_DIR,
+                            help='set the input directory, where files will be sent to the server. Default is current dir.')
+        self.add_argument('-out', type=str, dest='output_DIR', default=connectionHandler.output_DIR,
+                            help='set the output directory, where files will be received from the server. Default is current dir.')
+        self.add_argument('-t',type=int,  dest='timeout', default=clientSocket.timeout,
+                            help='set timeout for messages (in s). Default is 3s. ( only for clients )')
+        self.add_argument('-tries',type=int,  dest='max_tries', default=connectionHandler.MAX_TRIES,
+                            help='set max number of tries during reconnection. Default is 5.')
+
            
