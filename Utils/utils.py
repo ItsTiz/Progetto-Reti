@@ -10,9 +10,9 @@ from Utils.messageType import _KIND_SIZE, _CHECKSUM_SIZE
 import socket as Socket
 from socket import timeout
 from threading import Thread
-import threading
 import signal, sys
 import  os
+import argparse
 
 
 ##########################################
@@ -44,6 +44,7 @@ class connectionHandler:
     file = None
     
     ############################################################### funcitons
+            
     
     ##############
     # decode command strings into messages
@@ -102,7 +103,6 @@ class connectionHandler:
         if mess.kind == MessageType.LIST_REPLY:
             return print("\n".join(self._parseLIST_REPLY(mess.payload)))
         if mess.kind == MessageType.GET:
-            print("GET: ",mess.payload.decode(encoding="utf-8"));
             return self._sendPUT(mess.payload, sock, address)
         if mess.kind == MessageType.PUT:
             self._parsePUT(mess.payload, sock, address)
@@ -128,6 +128,7 @@ class connectionHandler:
     # address: (ip, port) to use
     #    
     def _sendLIST_REPLY(self, sock : Socket.socket, address: (str, int)):
+        print("\nSending list ");
         files =  ';'.join(self._getDir(os.path.abspath(self.input_DIR))).encode(encoding='utf-8')
         message = Message().fromKind(MessageType.LIST_REPLY, files)
         self._sendTo(sock, address, message.raw())
@@ -273,7 +274,7 @@ class connectionHandler:
     # @return: 
     # list of files
     def _getDir(self, directory):
-        return [f for f in os.listdir(directory)]
+        return [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f)) ]
     
     
     ##############
@@ -282,7 +283,7 @@ class connectionHandler:
     # @parameter 
     # file: file to check
     def _exists(self, file):
-        return any(filter(os.path.exists, [file]))
+        return os.path.exists(file)
         
     
     ##############
@@ -328,6 +329,23 @@ class connectionHandler:
         if self.file == None:
             return b''
         return self.file.read(block_size)
+    
+    ###################################################### setters
+        
+    def setInputDir(self, directory):
+        if not os.path.exists(directory):
+            return
+        self.input_DIR = directory
+    
+    def setOutputDir(self, directory):
+        if not os.path.exists(directory):
+            return
+        self.output_DIR = directory
+        
+    def setMaxTries(self, maxTries):
+        self.MAX_TRIES = maxTries
+        
+        
         
 
 
@@ -343,9 +361,10 @@ class clientSocket(Thread):
     socket: Socket.socket
     address : (str, int)
     conn = connectionHandler()
+    timeout = 3 #s
 
     #Constructor
-    def __init__(self, address : (str, int)):
+    def __init__(self, address : (str, int), args = None):
         
         # init thread
         super().__init__()
@@ -355,10 +374,17 @@ class clientSocket(Thread):
         
         #Binding with udp socket
         self.socket = Socket.socket(Socket.AF_INET, Socket.SOCK_DGRAM)
-        self.socket.settimeout(3)
+        self.socket.settimeout(self.timeout)
        
         # catch forced interrupts
         signal.signal(signal.SIGINT, self.close)
+        
+        # parse args
+        if(args != None):
+            self.conn.setInputDir(args.input_DIR)
+            self.conn.setOutputDir(args.output_DIR)
+            self.conn.setMaxTries(args.max_tries)
+            self.socket.settimeout(args.timeout)
         
         
     #Close socket - also called for SIGINT process calls
@@ -377,7 +403,7 @@ class clientSocket(Thread):
         while True:
             
             # parse CLI input
-            input_command = input("Type in your command:")
+            input_command = input("> Type in your command:")
             
             # decode input into message
             input_mess, ok = self.conn.decodeInput(input_command)
@@ -433,6 +459,26 @@ class clientSocket(Thread):
 
 ##########################################
 ##########################################
+# commandParser
+# 
+# parse options given to .py files
+#
+class commandParser(argparse.ArgumentParser):
+    def __init__(self, descr:str):
+        super().__init__(description=descr)
+        self.add_argument('-in', type=str, dest='input_DIR', default=connectionHandler.input_DIR,
+                            help='set the input directory, where files will be sent to the server. Default is current dir.')
+        self.add_argument('-out', type=str, dest='output_DIR', default=connectionHandler.output_DIR,
+                            help='set the output directory, where files will be received from the server. Default is current dir.')
+        self.add_argument('-t',type=int,  dest='timeout', default=clientSocket.timeout,
+                            help='set timeout for messages (in s). Default is 3s. ( only for clients )')
+        self.add_argument('-tries',type=int,  dest='max_tries', default=connectionHandler.MAX_TRIES,
+                            help='set max number of tries during reconnection. Default is 5.')
+
+
+
+##########################################
+##########################################
 # serverSocket
 # 
 # interoperates with a cliebt using protocol
@@ -443,7 +489,7 @@ class serverSocket(Thread):
     connHandler = connectionHandler()
 
     #Constructor
-    def __init__(self, address : (str, int)):
+    def __init__(self, address : (str, int), args = None):
         
         # init thread
         super().__init__()
@@ -458,6 +504,12 @@ class serverSocket(Thread):
        
         # catch forced interrupts
         signal.signal(signal.SIGINT, self.close)
+        
+        # parse args
+        if(args != None):
+            self.connHandler.setInputDir(args.input_DIR)
+            self.connHandler.setOutputDir(args.output_DIR)
+            self.connHandler.setMaxTries(args.max_tries)
         
     #Close socket - also called for SIGINT process calls
     def close(self, signal, frame):
