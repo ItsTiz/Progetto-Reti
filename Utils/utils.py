@@ -368,7 +368,6 @@ class clientSocket(Thread):
         
         # init thread
         super().__init__()
-       
         # init address
         self.address = (args.ip, args.port)
         
@@ -388,21 +387,24 @@ class clientSocket(Thread):
         
     #Close socket - also called for SIGINT process calls
     def close(self, signal, frame):
-        print("[Closing client]")
         # clear conneaction
         try:
-          if(self):
+          if(self): 
             self.socket.close()
         finally:
-            sys.exit(0)
+            print("[Closing client]")
     
     #Listening for input commands
     def run(self):
         
         while True:
-            
-            # parse CLI input
-            input_command = input("> Type in your command:")
+            input_command = ""
+            # handle EOFError exception while quitting program
+            try:
+                # parse CLI input
+                input_command = input("> Type in your command:")
+            except EOFError:
+                break 
             
             # decode input into message
             input_mess, ok = self.conn.decodeInput(input_command)
